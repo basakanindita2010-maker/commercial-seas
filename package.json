@@ -1,6 +1,7 @@
 {
-  "name": "college-cms-node",
+  "name": "inventory-erp",
   "version": "1.0.0",
+  "description": "Production-ready Inventory ERP built with Node.js, Express, MongoDB, Mongoose, and EJS.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
