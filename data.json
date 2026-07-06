@@ -1,0 +1,37 @@
+{
+  "name": "principal-software-architect-saas",
+  "version": "1.0.0",
+  "description": "Production-ready enterprise SaaS application built with Node.js, Express, MongoDB, Mongoose, EJS, Bootstrap 5, Chart.js, and Express Session.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "saas",
+    "enterprise",
+    "express",
+    "mongoose",
+    "ejs",
+    "mongodb",
+    "bootstrap",
+    "chartjs",
+    "principal-architect"
+  ],
+  "author": "Anthropic",
+  "license": "Commercial",
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "mongoose": "^8.9.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
