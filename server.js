@@ -121,7 +121,9 @@ app.get('/', (req, res) => {
 });
 
 app.get('/login', (req, res) => {
-  res.render('login', { error: req.query.error || '' });
+  res.render('login', {
+    error: req.query.error || ''
+  });
 });
 
 app.post('/login', async (req, res) => {
@@ -285,7 +287,17 @@ async function appHandler(req, res) {
       fetched_students: [],
       exam_students: [],
       existing_scores: {},
-      existing_attendance: {}
+      existing_attendance: {},
+      courses: [],
+      subjects: [],
+      staffs: [],
+      students: [],
+      leaves: [],
+      notifs: [],
+      my_leaves: [],
+      logs: [],
+      my_att: [],
+      scores: []
     };
 
     data.courses = await Course.find({});
