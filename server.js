@@ -5,6 +5,7 @@ const session = require('express-session');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,7 +13,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
   console.error('ERROR: MONGODB_URI is missing.');
-  console.error('You must set MONGODB_URI in your Render.com environment variables.');
+  console.error('Please set MONGODB_URI in your Render.com environment variables and restart the application.');
   process.exit(1);
 }
 
@@ -22,93 +23,155 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+
 app.use(session({
-  secret: 'secret_key_cms',
+  secret: 'inventory_erp_secret_key',
   resave: false,
   saveUninitialized: true
 }));
 
 const { Schema } = mongoose;
 
-const CourseSchema = new Schema({
-  name: { type: String, required: true, trim: true }
-});
-
-const SubjectSchema = new Schema({
-  name: { type: String, required: true, trim: true },
-  course_id: { type: Schema.Types.ObjectId, ref: 'Course', required: true }
-});
-
 const UserSchema = new Schema({
   full_name: { type: String, required: true, trim: true },
   email: { type: String, required: true, trim: true, lowercase: true, unique: true },
   password: { type: String, default: '123456' },
-  role: { type: String, enum: ['admin', 'staff', 'student'], required: true },
-  gender: { type: String, default: '' },
+  role: { type: String, enum: ['admin', 'manager', 'staff', 'accountant', 'viewer'], default: 'viewer' },
+  phone: { type: String, default: '' },
+  status: { type: String, default: 'Active' }
+}, { timestamps: true });
+
+const CategorySchema = new Schema({
+  name: { type: String, required: true, trim: true },
+  description: { type: String, default: '' },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
+
+const SupplierSchema = new Schema({
+  supplierCode: { type: String, required: true, unique: true, trim: true },
+  companyName: { type: String, required: true, trim: true },
+  contactPerson: { type: String, default: '' },
+  email: { type: String, default: '', lowercase: true, trim: true },
+  phone: { type: String, default: '' },
   address: { type: String, default: '' },
-  profile_pic: { type: String, default: 'default.png' },
-  course_id: { type: Schema.Types.ObjectId, ref: 'Course', default: null },
-  session_id: { type: String, default: '' }
-});
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
 
-const AttendanceSchema = new Schema({
-  student_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  subject_id: { type: Schema.Types.ObjectId, ref: 'Subject', required: true },
-  course_id: { type: Schema.Types.ObjectId, ref: 'Course', required: true },
-  status: { type: String, required: true },
-  date: { type: String, required: true }
-});
+const ProductSchema = new Schema({
+  sku: { type: String, required: true, unique: true, trim: true },
+  name: { type: String, required: true, trim: true },
+  categoryId: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
+  supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier', default: null },
+  unit: { type: String, default: 'pcs' },
+  costPrice: { type: Number, default: 0 },
+  sellingPrice: { type: Number, default: 0 },
+  stockQty: { type: Number, default: 0 },
+  reorderLevel: { type: Number, default: 0 },
+  description: { type: String, default: '' },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
 
-const ScoreSchema = new Schema({
-  student_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  subject_id: { type: Schema.Types.ObjectId, ref: 'Subject', required: true },
-  score: { type: Number, default: 0 }
-});
+const WarehouseSchema = new Schema({
+  code: { type: String, required: true, unique: true, trim: true },
+  name: { type: String, required: true, trim: true },
+  location: { type: String, default: '' },
+  managerName: { type: String, default: '' },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
 
-const LeaveSchema = new Schema({
-  user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  role: { type: String, required: true },
-  date: { type: String, required: true },
-  message: { type: String, required: true },
-  status: { type: String, default: 'Pending' },
-  created_at: { type: Date, default: Date.now }
-});
+const StockMovementSchema = new Schema({
+  movementCode: { type: String, required: true, unique: true, trim: true },
+  productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+  warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse', default: null },
+  movementType: { type: String, enum: ['IN', 'OUT', 'ADJUST'], required: true },
+  quantity: { type: Number, required: true },
+  referenceType: { type: String, default: '' },
+  referenceId: { type: String, default: '' },
+  notes: { type: String, default: '' },
+  movementDate: { type: Date, default: Date.now },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
+
+const PurchaseSchema = new Schema({
+  purchaseCode: { type: String, required: true, unique: true, trim: true },
+  supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier', required: true },
+  purchaseDate: { type: Date, default: Date.now },
+  totalAmount: { type: Number, default: 0 },
+  paidAmount: { type: Number, default: 0 },
+  balanceAmount: { type: Number, default: 0 },
+  paymentStatus: { type: String, default: 'Pending' },
+  notes: { type: String, default: '' },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
+
+const SaleSchema = new Schema({
+  saleCode: { type: String, required: true, unique: true, trim: true },
+  customerName: { type: String, required: true, trim: true },
+  customerEmail: { type: String, default: '', lowercase: true, trim: true },
+  saleDate: { type: Date, default: Date.now },
+  totalAmount: { type: Number, default: 0 },
+  paidAmount: { type: Number, default: 0 },
+  balanceAmount: { type: Number, default: 0 },
+  paymentStatus: { type: String, default: 'Pending' },
+  notes: { type: String, default: '' },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
 
 const NotificationSchema = new Schema({
+  title: { type: String, required: true, trim: true },
   message: { type: String, required: true },
-  type: { type: String, required: true },
-  created_at: { type: Date, default: Date.now }
-});
+  type: { type: String, default: 'Info' },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
 
-const FeedbackSchema = new Schema({
-  student_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  message: { type: String, required: true },
-  created_at: { type: Date, default: Date.now }
-});
+const AuditLogSchema = new Schema({
+  action: { type: String, required: true, trim: true },
+  entityName: { type: String, required: true, trim: true },
+  entityId: { type: String, default: '' },
+  summary: { type: String, default: '' },
+  ipAddress: { type: String, default: '' },
+  userAgent: { type: String, default: '' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  status: { type: String, default: 'Active' }
+}, { timestamps: true });
 
-const Course = mongoose.model('Course', CourseSchema);
-const Subject = mongoose.model('Subject', SubjectSchema);
+const SettingSchema = new Schema({
+  key: { type: String, required: true, unique: true, trim: true },
+  value: { type: Schema.Types.Mixed, default: null },
+  label: { type: String, default: '' },
+  description: { type: String, default: '' },
+  status: { type: String, default: 'Active' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null }
+}, { timestamps: true });
+
 const User = mongoose.model('User', UserSchema);
-const Attendance = mongoose.model('Attendance', AttendanceSchema);
-const Score = mongoose.model('Score', ScoreSchema);
-const Leave = mongoose.model('Leave', LeaveSchema);
+const Category = mongoose.model('Category', CategorySchema);
+const Supplier = mongoose.model('Supplier', SupplierSchema);
+const Product = mongoose.model('Product', ProductSchema);
+const Warehouse = mongoose.model('Warehouse', WarehouseSchema);
+const StockMovement = mongoose.model('StockMovement', StockMovementSchema);
+const Purchase = mongoose.model('Purchase', PurchaseSchema);
+const Sale = mongoose.model('Sale', SaleSchema);
 const Notification = mongoose.model('Notification', NotificationSchema);
-const Feedback = mongoose.model('Feedback', FeedbackSchema);
+const AuditLog = mongoose.model('AuditLog', AuditLogSchema);
+const Setting = mongoose.model('Setting', SettingSchema);
 
-async function initAdmin() {
-  const existingAdmin = await User.findOne({ role: 'admin' });
-  if (!existingAdmin) {
-    await User.create({
-      full_name: 'Administrator',
-      email: 'admin@gmail.com',
-      password: '123456',
-      role: 'admin',
-      gender: '',
-      address: '',
-      profile_pic: 'default.png'
-    });
-    console.log('Admin user created: admin@gmail.com / 123456');
-  }
+function generateCode(prefix) {
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+}
+
+function sanitize(value) {
+  if (typeof value === 'string') return value.trim().replace(/\$/g, '');
+  return value;
 }
 
 function requireAuth(req, res, next) {
@@ -116,19 +179,52 @@ function requireAuth(req, res, next) {
   next();
 }
 
+async function logAudit(req, user, action, entityName, entityId = '', summary = '') {
+  try {
+    await AuditLog.create({
+      action,
+      entityName,
+      entityId: String(entityId || ''),
+      summary: String(summary || ''),
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+      createdBy: user ? user._id : null,
+      status: 'Active'
+    });
+  } catch (error) {
+    console.error('Audit logging failed:', error.message);
+  }
+}
+
+async function seedAdmin() {
+  const exists = await User.findOne({ role: 'admin' });
+  if (!exists) {
+    await User.create({
+      full_name: 'Administrator',
+      email: 'admin@inventory.com',
+      password: 'admin123',
+      role: 'admin',
+      phone: '',
+      status: 'Active'
+    });
+    console.log('Default admin created: admin@inventory.com / admin123');
+  }
+}
+
 app.get('/', (req, res) => {
-  res.redirect('/app');
+  if (req.session.user) return res.redirect('/app?page=dashboard');
+  return res.redirect('/login');
 });
 
 app.get('/login', (req, res) => {
-  res.render('login', {
-    error: req.query.error || ''
-  });
+  if (req.session.user) return res.redirect('/app?page=dashboard');
+  res.render('login', { error: req.query.error || '' });
 });
 
 app.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = sanitize(req.body.email).toLowerCase();
+    const password = sanitize(req.body.password);
     const user = await User.findOne({ email, password });
     if (!user) return res.redirect('/login?error=Invalid%20credentials');
 
@@ -136,11 +232,10 @@ app.post('/login', async (req, res) => {
       _id: user._id.toString(),
       full_name: user.full_name,
       email: user.email,
-      role: user.role,
-      gender: user.gender,
-      course_id: user.course_id ? user.course_id.toString() : ''
+      role: user.role
     };
 
+    await logAudit(req, user, 'Login', 'User', user._id, `User logged in: ${user.email}`);
     return res.redirect('/app?page=dashboard');
   } catch (error) {
     console.error(error);
@@ -148,244 +243,310 @@ app.post('/login', async (req, res) => {
   }
 });
 
-app.get('/logout', (req, res) => {
+app.get('/logout', requireAuth, async (req, res) => {
+  try {
+    await logAudit(req, req.session.user, 'Logout', 'User', req.session.user._id, `User logged out: ${req.session.user.email}`);
+  } catch (e) {}
   req.session.destroy(() => res.redirect('/login'));
 });
 
-async function appHandler(req, res) {
+const PAGE_CONFIG = {
+  dashboard: 'Dashboard',
+  products: 'Products',
+  categories: 'Categories',
+  suppliers: 'Suppliers',
+  warehouses: 'Warehouses',
+  stock: 'Stock Movements',
+  purchases: 'Purchases',
+  sales: 'Sales',
+  notifications: 'Notifications',
+  settings: 'Settings',
+  audit: 'Audit Logs',
+  users: 'Users'
+};
+
+app.get('/app', requireAuth, async (req, res) => {
   try {
-    const success_msg = req.query.msg || '';
-    const page = req.query.page || 'dashboard';
+    const page = String(req.query.page || 'dashboard').toLowerCase();
     const user = req.session.user;
+    const search = sanitize(req.query.search || '');
+    const message = sanitize(req.query.msg || '');
+    const data = {
+      user,
+      page,
+      pageTitle: PAGE_CONFIG[page] || 'Dashboard',
+      message,
+      rows: [],
+      total: 0,
+      productsCount: 0,
+      categoriesCount: 0,
+      suppliersCount: 0,
+      warehousesCount: 0,
+      salesCount: 0,
+      purchasesCount: 0,
+      lowStockCount: 0,
+      chartLabels: [],
+      chartData: [],
+      product: null,
+      category: null,
+      supplier: null,
+      warehouse: null,
+      notification: null,
+      products: [],
+      categories: [],
+      suppliers: [],
+      warehouses: [],
+      movements: [],
+      purchases: [],
+      sales: [],
+      notifications: [],
+      auditlogs: [],
+      users: []
+    };
 
     if (req.query.delete && req.query.table && req.query.id) {
       const { table, id } = req.query;
-      if (table === 'courses') {
-        await Course.findByIdAndDelete(id);
-      } else if (table === 'subjects') {
-        await Subject.findByIdAndDelete(id);
-      } else if (table === 'staff' || table === 'students') {
-        await User.findByIdAndDelete(id);
+      const map = {
+        products: Product,
+        categories: Category,
+        suppliers: Supplier,
+        warehouses: Warehouse,
+        stock: StockMovement,
+        purchases: Purchase,
+        sales: Sale,
+        notifications: Notification,
+        users: User
+      };
+      const Model = map[table];
+      if (Model) {
+        await Model.findByIdAndDelete(id);
+        await logAudit(req, user, 'Delete', table, id, `Deleted ${table} record`);
       }
-      return res.redirect(`/app?page=${encodeURIComponent(page)}&msg=Record%20deleted%20successfully.`);
+      return res.redirect(`/app?page=${page}&msg=Record%20deleted%20successfully.`);
     }
 
     if (req.method === 'POST') {
       const action = req.body.action;
 
-      if (action === 'add_course') {
-        await Course.create({ name: req.body.name });
-        return res.redirect(`/app?page=courses&msg=Course%20added%20successfully.`);
-      }
-
-      if (action === 'add_subject') {
-        await Subject.create({ name: req.body.name, course_id: req.body.course_id });
-        return res.redirect(`/app?page=subjects&msg=Subject%20added%20successfully.`);
-      }
-
-      if (action === 'add_staff') {
-        await User.create({
-          full_name: req.body.full_name,
-          email: req.body.email,
-          password: req.body.password || '123456',
-          role: 'staff',
-          gender: req.body.gender || '',
-          address: req.body.address || '',
-          profile_pic: 'default.png',
-          course_id: null
+      if (action === 'add_category') {
+        await Category.create({
+          name: sanitize(req.body.name),
+          description: sanitize(req.body.description || ''),
+          createdBy: user._id,
+          status: 'Active'
         });
-        return res.redirect(`/app?page=manage_staff&msg=Staff%20added%20successfully.`);
+        await logAudit(req, user, 'Create', 'Category', '', `Created category ${req.body.name}`);
+        return res.redirect('/app?page=categories&msg=Category%20created%20successfully.');
       }
 
-      if (action === 'add_student') {
-        await User.create({
-          full_name: req.body.full_name,
-          email: req.body.email,
-          password: req.body.password || '123456',
-          role: 'student',
-          gender: req.body.gender || '',
-          address: req.body.address || '',
-          profile_pic: 'default.png',
-          course_id: req.body.course_id || null
+      if (action === 'add_supplier') {
+        await Supplier.create({
+          supplierCode: req.body.supplierCode || generateCode('SUP'),
+          companyName: sanitize(req.body.companyName),
+          contactPerson: sanitize(req.body.contactPerson || ''),
+          email: sanitize(req.body.email || '').toLowerCase(),
+          phone: sanitize(req.body.phone || ''),
+          address: sanitize(req.body.address || ''),
+          createdBy: user._id,
+          status: 'Active'
         });
-        return res.redirect(`/app?page=manage_students&msg=Student%20added%20successfully.`);
+        await logAudit(req, user, 'Create', 'Supplier', '', `Created supplier ${req.body.companyName}`);
+        return res.redirect('/app?page=suppliers&msg=Supplier%20created%20successfully.');
       }
 
-      if (action === 'save_attendance') {
-        const { date, course_id, subject_id, attendance } = req.body;
-        await Attendance.deleteMany({ date, course_id, subject_id });
-
-        if (attendance && typeof attendance === 'object') {
-          for (const studentId of Object.keys(attendance)) {
-            await Attendance.create({
-              student_id: studentId,
-              subject_id,
-              course_id,
-              status: attendance[studentId],
-              date
-            });
-          }
-        }
-
-        return res.redirect(`/app?page=take_attendance&msg=Attendance%20saved%20successfully.`);
-      }
-
-      if (action === 'save_scores') {
-        const { subject_id, score } = req.body;
-        if (score && typeof score === 'object') {
-          for (const studentId of Object.keys(score)) {
-            const val = score[studentId];
-            if (val !== '' && val !== null && typeof val !== 'undefined') {
-              await Score.findOneAndUpdate(
-                { student_id: studentId, subject_id },
-                { score: Number(val) },
-                { upsert: true, new: true }
-              );
-            }
-          }
-        }
-
-        return res.redirect(`/app?page=manage_exams&msg=Scores%20saved%20successfully.`);
-      }
-
-      if (action === 'apply_leave') {
-        await Leave.create({
-          user_id: user._id,
-          role: user.role,
-          date: req.body.date,
-          message: req.body.message
+      if (action === 'add_product') {
+        await Product.create({
+          sku: req.body.sku || generateCode('SKU'),
+          name: sanitize(req.body.name),
+          categoryId: req.body.categoryId || null,
+          supplierId: req.body.supplierId || null,
+          unit: sanitize(req.body.unit || 'pcs'),
+          costPrice: Number(req.body.costPrice || 0),
+          sellingPrice: Number(req.body.sellingPrice || 0),
+          stockQty: Number(req.body.stockQty || 0),
+          reorderLevel: Number(req.body.reorderLevel || 0),
+          description: sanitize(req.body.description || ''),
+          createdBy: user._id,
+          status: 'Active'
         });
-        return res.redirect(`/app?page=apply_leave&msg=Leave%20applied%20successfully.`);
+        await logAudit(req, user, 'Create', 'Product', '', `Created product ${req.body.name}`);
+        return res.redirect('/app?page=products&msg=Product%20created%20successfully.');
       }
 
-      if (action === 'update_leave') {
-        await Leave.findByIdAndUpdate(req.body.leave_id, { status: req.body.status });
-        return res.redirect(`/app?page=notifications&msg=Leave%20status%20updated%20successfully.`);
+      if (action === 'add_warehouse') {
+        await Warehouse.create({
+          code: req.body.code || generateCode('WH'),
+          name: sanitize(req.body.name),
+          location: sanitize(req.body.location || ''),
+          managerName: sanitize(req.body.managerName || ''),
+          createdBy: user._id,
+          status: 'Active'
+        });
+        await logAudit(req, user, 'Create', 'Warehouse', '', `Created warehouse ${req.body.name}`);
+        return res.redirect('/app?page=warehouses&msg=Warehouse%20created%20successfully.');
+      }
+
+      if (action === 'add_stock') {
+        await StockMovement.create({
+          movementCode: req.body.movementCode || generateCode('MOV'),
+          productId: req.body.productId,
+          warehouseId: req.body.warehouseId || null,
+          movementType: req.body.movementType,
+          quantity: Number(req.body.quantity || 0),
+          referenceType: sanitize(req.body.referenceType || ''),
+          referenceId: sanitize(req.body.referenceId || ''),
+          notes: sanitize(req.body.notes || ''),
+          movementDate: req.body.movementDate ? new Date(req.body.movementDate) : new Date(),
+          createdBy: user._id,
+          status: 'Active'
+        });
+        await logAudit(req, user, 'Create', 'StockMovement', '', `Created stock movement`);
+        return res.redirect('/app?page=stock&msg=Stock%20movement%20saved%20successfully.');
+      }
+
+      if (action === 'add_purchase') {
+        const total = Number(req.body.totalAmount || 0);
+        const paid = Number(req.body.paidAmount || 0);
+        await Purchase.create({
+          purchaseCode: req.body.purchaseCode || generateCode('PUR'),
+          supplierId: req.body.supplierId,
+          purchaseDate: req.body.purchaseDate ? new Date(req.body.purchaseDate) : new Date(),
+          totalAmount: total,
+          paidAmount: paid,
+          balanceAmount: total - paid,
+          paymentStatus: req.body.paymentStatus || 'Pending',
+          notes: sanitize(req.body.notes || ''),
+          createdBy: user._id,
+          status: 'Active'
+        });
+        await logAudit(req, user, 'Create', 'Purchase', '', `Created purchase`);
+        return res.redirect('/app?page=purchases&msg=Purchase%20created%20successfully.');
+      }
+
+      if (action === 'add_sale') {
+        const total = Number(req.body.totalAmount || 0);
+        const paid = Number(req.body.paidAmount || 0);
+        await Sale.create({
+          saleCode: req.body.saleCode || generateCode('SAL'),
+          customerName: sanitize(req.body.customerName),
+          customerEmail: sanitize(req.body.customerEmail || '').toLowerCase(),
+          saleDate: req.body.saleDate ? new Date(req.body.saleDate) : new Date(),
+          totalAmount: total,
+          paidAmount: paid,
+          balanceAmount: total - paid,
+          paymentStatus: req.body.paymentStatus || 'Pending',
+          notes: sanitize(req.body.notes || ''),
+          createdBy: user._id,
+          status: 'Active'
+        });
+        await logAudit(req, user, 'Create', 'Sale', '', `Created sale`);
+        return res.redirect('/app?page=sales&msg=Sale%20created%20successfully.');
       }
 
       if (action === 'send_notification') {
         await Notification.create({
-          message: req.body.message,
-          type: req.body.type
+          title: sanitize(req.body.title),
+          message: sanitize(req.body.message),
+          type: sanitize(req.body.type || 'Info'),
+          createdBy: user._id,
+          status: 'Active'
         });
-        return res.redirect(`/app?page=notify&msg=Notification%20sent%20successfully.`);
+        await logAudit(req, user, 'Create', 'Notification', '', `Sent notification`);
+        return res.redirect('/app?page=notifications&msg=Notification%20sent%20successfully.');
       }
 
-      if (action === 'send_feedback') {
-        await Feedback.create({
-          student_id: user._id,
-          message: req.body.message
+      if (action === 'add_user') {
+        await User.create({
+          full_name: sanitize(req.body.full_name),
+          email: sanitize(req.body.email).toLowerCase(),
+          password: sanitize(req.body.password || '123456'),
+          role: sanitize(req.body.role || 'viewer'),
+          phone: sanitize(req.body.phone || ''),
+          status: 'Active'
         });
-        return res.redirect(`/app?page=feedback&msg=Feedback%20sent%20successfully.`);
+        await logAudit(req, user, 'Create', 'User', '', `Created user ${req.body.email}`);
+        return res.redirect('/app?page=users&msg=User%20created%20successfully.');
       }
     }
 
-    const data = {
-      user,
-      page,
-      success_msg,
-      fetched_students: [],
-      exam_students: [],
-      existing_scores: {},
-      existing_attendance: {},
-      courses: [],
-      subjects: [],
-      staffs: [],
-      students: [],
-      leaves: [],
-      notifs: [],
-      my_leaves: [],
-      logs: [],
-      my_att: [],
-      scores: []
-    };
-
-    data.courses = await Course.find({});
-    data.subjects = await Subject.find({}).populate('course_id');
+    data.productsCount = await Product.countDocuments({});
+    data.categoriesCount = await Category.countDocuments({});
+    data.suppliersCount = await Supplier.countDocuments({});
+    data.warehousesCount = await Warehouse.countDocuments({});
+    data.salesCount = await Sale.countDocuments({});
+    data.purchasesCount = await Purchase.countDocuments({});
+    data.lowStockCount = await Product.countDocuments({ stockQty: { $lte: 10 } });
 
     if (page === 'dashboard') {
-      data.total_students = await User.countDocuments({ role: 'student' });
-      data.total_staff = await User.countDocuments({ role: 'staff' });
-      data.total_courses = await Course.countDocuments({});
-      data.total_subjects = await Subject.countDocuments({});
-      data.att_count = await Attendance.countDocuments({});
-
-      if (user.role === 'student') {
-        data.total_present = await Attendance.countDocuments({ student_id: user._id, status: 'Present' });
-        data.total_total = await Attendance.countDocuments({ student_id: user._id });
-      }
+      data.products = await Product.find({}).sort({ createdAt: -1 }).limit(5).lean();
+      data.auditlogs = await AuditLog.find({}).sort({ createdAt: -1 }).limit(8).lean();
+      data.notifications = await Notification.find({}).sort({ createdAt: -1 }).limit(5).lean();
+      data.chartLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+      data.chartData = [12, 19, 9, 15, 22, 18];
     }
 
-    if (page === 'manage_staff') {
-      data.staffs = await User.find({ role: 'staff' });
+    if (page === 'products') {
+      data.products = await Product.find({})
+        .populate('categoryId')
+        .populate('supplierId')
+        .sort({ createdAt: -1 })
+        .lean();
+      data.categories = await Category.find({}).sort({ name: 1 }).lean();
+      data.suppliers = await Supplier.find({}).sort({ companyName: 1 }).lean();
     }
 
-    if (page === 'manage_students') {
-      data.students = await User.find({ role: 'student' }).populate('course_id');
+    if (page === 'categories') {
+      data.categories = await Category.find({}).sort({ createdAt: -1 }).lean();
     }
 
-    if (page === 'manage_attendance' || page === 'take_attendance') {
-      if (req.query.fetch_course && req.query.fetch_date && req.query.fetch_subject) {
-        const students = await User.find({ role: 'student', course_id: req.query.fetch_course });
-        const records = await Attendance.find({
-          date: req.query.fetch_date,
-          course_id: req.query.fetch_course,
-          subject_id: req.query.fetch_subject
-        });
-
-        const map = {};
-        records.forEach(r => {
-          map[r.student_id.toString()] = r.status;
-        });
-
-        data.fetched_students = students;
-        data.existing_attendance = map;
-        data.fetch_date = req.query.fetch_date;
-        data.fetch_course = req.query.fetch_course;
-        data.fetch_subject = req.query.fetch_subject;
-      }
+    if (page === 'suppliers') {
+      data.suppliers = await Supplier.find({}).sort({ createdAt: -1 }).lean();
     }
 
-    if (page === 'manage_exams') {
-      if (req.query.fetch_course && req.query.fetch_subject) {
-        const students = await User.find({ role: 'student', course_id: req.query.fetch_course });
-        const records = await Score.find({ subject_id: req.query.fetch_subject });
-
-        const map = {};
-        records.forEach(r => {
-          map[r.student_id.toString()] = r.score;
-        });
-
-        data.exam_students = students;
-        data.existing_scores = map;
-        data.fetch_course = req.query.fetch_course;
-        data.fetch_subject = req.query.fetch_subject;
-      }
+    if (page === 'warehouses') {
+      data.warehouses = await Warehouse.find({}).sort({ createdAt: -1 }).lean();
     }
 
-    if (page === 'notifications' && user.role === 'admin') {
-      data.leaves = await Leave.find({}).populate('user_id').sort({ created_at: -1 });
+    if (page === 'stock') {
+      data.movements = await StockMovement.find({})
+        .populate('productId')
+        .populate('warehouseId')
+        .sort({ createdAt: -1 })
+        .lean();
+      data.products = await Product.find({}).sort({ name: 1 }).lean();
+      data.warehouses = await Warehouse.find({}).sort({ name: 1 }).lean();
     }
 
-    if (page === 'staff_notifs' || page === 'student_notifs') {
-      const type = user.role;
-      data.notifs = await Notification.find({ type }).sort({ created_at: -1 });
+    if (page === 'purchases') {
+      data.purchases = await Purchase.find({})
+        .populate('supplierId')
+        .sort({ createdAt: -1 })
+        .lean();
+      data.suppliers = await Supplier.find({}).sort({ companyName: 1 }).lean();
     }
 
-    if (page === 'apply_leave') {
-      data.my_leaves = await Leave.find({ user_id: user._id }).sort({ created_at: -1 });
+    if (page === 'sales') {
+      data.sales = await Sale.find({}).sort({ createdAt: -1 }).lean();
     }
 
-    if (page === 'view_attendance' && user.role === 'staff') {
-      data.logs = await Attendance.find({}).populate('student_id').populate('subject_id').sort({ date: -1 }).limit(50);
+    if (page === 'notifications') {
+      data.notifications = await Notification.find({}).sort({ createdAt: -1 }).lean();
     }
 
-    if (page === 'my_attendance' && user.role === 'student') {
-      data.my_att = await Attendance.find({ student_id: user._id }).populate('subject_id').sort({ date: -1 });
+    if (page === 'settings') {
+      data.settings = await Setting.find({}).sort({ createdAt: -1 }).lean();
     }
 
-    if (page === 'exam_results' && user.role === 'student') {
-      data.scores = await Score.find({ student_id: user._id }).populate('subject_id');
+    if (page === 'audit') {
+      data.auditlogs = await AuditLog.find({})
+        .populate('createdBy')
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+    }
+
+    if (page === 'users') {
+      data.users = await User.find({}).sort({ createdAt: -1 }).lean();
     }
 
     return res.render('app', data);
@@ -393,21 +554,18 @@ async function appHandler(req, res) {
     console.error(error);
     return res.status(500).send('An error occurred while loading the page.');
   }
-}
-
-app.get('/app', requireAuth, appHandler);
-app.post('/app', requireAuth, appHandler);
+});
 
 app.use((req, res) => {
   res.status(404).send(`Route Not Found: ${req.method} ${req.url}`);
 });
 
-async function start() {
+async function startServer() {
   try {
     await mongoose.connect(MONGODB_URI);
-    await initAdmin();
+    await seedAdmin();
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on port ${PORT}`);
+      console.log(`Inventory ERP running on port ${PORT}`);
     });
   } catch (error) {
     console.error('Database connection failed:', error.message);
@@ -415,4 +573,4 @@ async function start() {
   }
 }
 
-start();
+startServer();
